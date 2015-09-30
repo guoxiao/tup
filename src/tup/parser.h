@@ -25,6 +25,7 @@
 #include "string_tree.h"
 #include "timespan.h"
 #include "vardb.h"
+#include "estring.h"
 
 #define TUPLUA_NOERROR 0
 #define TUPLUA_PENDINGERROR 1
@@ -43,9 +44,10 @@ struct lua_State;
 
 struct tupfile {
 	tupid_t tupid;
+	tupid_t srctupid;
 	struct variant *variant;
 	struct tup_entry *curtent;
-	struct tup_entry *srctent;
+	struct estring srcdir;
 	int cur_dfd;
 	int root_fd;
 	int refactoring;
@@ -79,7 +81,6 @@ struct name_list_entry {
 	int extlesslen;
 	int baselen;
 	int extlessbaselen;
-	int dirlen;
 	int glob[MAX_GLOBS*2];  /* Array of integer pairs to identify portions of
 	                         * of the name that were the result of glob
 	                         * expansions. The first int is the index of the

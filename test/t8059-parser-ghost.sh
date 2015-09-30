@@ -32,7 +32,6 @@ tup touch build/tup.config Tupfile
 update
 
 echo 'nofile' | diff - build/output.txt
-tup_object_exist . ghost-dir
 tup_object_exist build ghost-dir
 
 cat > sub/Tupfile << HERE

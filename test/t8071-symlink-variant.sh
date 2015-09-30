@@ -37,7 +37,7 @@ touch build/tup.config
 update
 
 cat > Tupfile << HERE
-: foreach *.c |> gcc -c %f -o %o -Idist |> %B.o
+: foreach *.c |> gcc -c %f -o %o -I\$(TUP_SRCDIR)/dist |> %B.o
 HERE
 cat > foo.c << HERE
 #include "bar/sub/foo.h"
@@ -45,7 +45,7 @@ HERE
 update
 
 check_exist build/dist/bar/sub
-tup_dep_exist dist/bar/sub foo.h build 'gcc -c foo.c -o foo.o -Idist'
+tup_dep_exist dist/bar/sub foo.h build 'gcc -c ../foo.c -o foo.o -I../dist'
 sleep 1
 
 rm -rf dist/bar/sub
@@ -55,6 +55,6 @@ cd ../..
 update
 
 check_not_exist build/dist/bar/sub
-tup_dep_exist dist/bar sub build 'gcc -c foo.c -o foo.o -Idist'
+tup_dep_exist dist/bar sub build 'gcc -c ../foo.c -o foo.o -I../dist'
 
 eotup

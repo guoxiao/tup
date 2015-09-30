@@ -67,7 +67,7 @@ struct file_info {
 	int open_count;
 };
 
-int init_file_info(struct file_info *info, const char *variant_dir);
+int init_file_info(struct file_info *info);
 void finfo_lock(struct file_info *info);
 void finfo_unlock(struct file_info *info);
 int handle_file(enum access_type at, const char *filename, const char *file2,

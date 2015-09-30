@@ -27,7 +27,7 @@ echo "" > build/tup.config
 
 tmkdir sub
 cat > sub/Tupfile << HERE
-: |> if [ -f ghost/foo ]; then cat ghost/foo; else echo nofile; fi > %o |> output.txt
+: |> if [ -f \$(TUP_SRCDIR)/ghost/foo ]; then cat \$(TUP_SRCDIR)/ghost/foo; else echo nofile; fi > %o |> output.txt
 HERE
 tup touch build/tup.config sub/Tupfile
 update

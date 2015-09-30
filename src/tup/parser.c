@@ -80,8 +80,6 @@ struct chain {
 
 struct build_name_list_args {
 	struct name_list *nl;
-	const char *dir;
-	int dirlen;
 	const char *globstr;  /* Pointer to the basename of the filename in the tupfile */
 	int globstrlen;       /* Length of the basename */
 	int wildcard;
@@ -139,7 +137,6 @@ static int nl_add_path(struct tupfile *tf, struct path_list *pl,
 		       struct name_list *nl, int required);
 static int nl_add_bin(struct bin *b, struct name_list *nl);
 static int build_name_list_cb(void *arg, struct tup_entry *tent);
-static char *set_path(const char *name, const char *dir, int dirlen);
 static int do_rule_output_pattern(struct tupfile *tf, struct rule *r,
 				  struct name_list *nl, const char *ext, int extlen,
 				  struct name_list *output_nl);
@@ -211,7 +208,7 @@ int parse(struct node *n, struct graph *g, struct timespan *retts, int refactori
 			return -1;
 	}
 
-	init_file_info(&ps.s.finfo, tf.variant->variant_dir);
+	init_file_info(&ps.s.finfo);
 	ps.s.id = n->tnode.tupid;
 	pthread_mutex_init(&ps.lock, NULL);
 
@@ -235,16 +232,30 @@ int parse(struct node *n, struct graph *g, struct timespan *retts, int refactori
 	}
 
 	tf.tupid = n->tnode.tupid;
-	tf.curtent = tup_entry_get(tf.tupid);
 	tf.root_fd = ps.root_fd;
 	tf.g = g;
 	tf.refactoring = refactoring;
+	if(estring_init(&tf.srcdir) < 0)
+		return -1;
 	if(tf.variant->root_variant) {
-		tf.srctent = NULL;
+		tf.curtent = n->tent;
+		estring_append(&tf.srcdir, ".", 1);
 	} else {
-		if(variant_get_srctent(tf.variant, tf.tupid, &tf.srctent) < 0)
+		struct tup_entry *srctent;
+		if(variant_get_srctent(tf.variant, tf.tupid, &srctent) < 0)
 			goto out_server_stop;
+		if(srctent) {
+			if(get_relative_dir(NULL, &tf.srcdir, NULL, tf.tupid, srctent->tnode.tupid, NULL) < 0)
+				return -1;
+			tf.curtent = srctent;
+		} else {
+			/* t8075 - a manually created directory inside the
+			 * variant won't have a srctent.
+			 */
+			tf.curtent = n->tent;
+		}
 	}
+	tf.srctupid = tf.curtent->tnode.tupid;
 	tf.ign = 0;
 	tf.circular_dep_error = 0;
 	if(nodedb_init(&tf.node_db) < 0)
@@ -272,9 +283,11 @@ int parse(struct node *n, struct graph *g, struct timespan *retts, int refactori
 		fd = -1;
 		tf.cur_dfd = -1;
 	} else {
-		tf.cur_dfd = tup_entry_openat(ps.root_fd, n->tent);
+		tf.cur_dfd = tup_entry_openat(ps.root_fd, tf.curtent);
 		if(tf.cur_dfd < 0) {
-			fprintf(tf.f, "tup error: Unable to open directory ID %lli\n", tf.tupid);
+			fprintf(tf.f, "tup error: Unable to open directory: ");
+			print_tup_entry(tf.f, tf.curtent);
+			fprintf(tf.f, "\n");
 			goto out_close_vdb;
 		}
 
@@ -391,6 +404,7 @@ out_server_stop:
 	free_tupid_tree(&tf.directory_root);
 	free_bang_tree(&tf.bang_root);
 	free_tupid_tree(&tf.input_root);
+	free(tf.srcdir.s);
 
 	timespan_end(&tf.ts);
 	if(retts) {
@@ -718,7 +732,7 @@ static int include_rules(struct tupfile *tf)
 
 	num_dotdots = 0;
 	tent = tf->curtent;
-	while(tent->tnode.tupid != tf->variant->dtnode.tupid) {
+	while(tent->tnode.tupid != DOT_DT) {
 		tent = tent->parent;
 		num_dotdots++;
 	}
@@ -1128,6 +1142,7 @@ static int include_file(struct tupfile *tf, const char *file)
 	int old_dfd = tf->cur_dfd;
 	struct tup_entry *srctent = NULL;
 	struct tup_entry *newtent;
+	struct variant *variant;
 	char *lua;
 
 	if(get_path_elements(file, &pg) < 0)
@@ -1149,7 +1164,8 @@ static int include_file(struct tupfile *tf, const char *file)
 	}
 
 	newtent = tup_entry_get(newdt);
-	if(tup_entry_variant(newtent) != tf->variant) {
+	variant = tup_entry_variant(newtent);
+	if(!variant->root_variant && tup_entry_variant(newtent) != tf->variant) {
 		fprintf(tf->f, "tup error: Unable to include file '%s' since it is outside of the variant tree.\n", file);
 		return -1;
 	}
@@ -1660,17 +1676,8 @@ static int set_variable(struct tupfile *tf, char *line)
 		struct tup_entry *tent;
 		tent = get_tent_dt(tf->curtent->tnode.tupid, value);
 		if(!tent || tent->type == TUP_NODE_GHOST) {
-			/* didn't find the given file; if using a variant, check the source dir */
-			struct tup_entry *srctent;
-			if(variant_get_srctent(tf->variant, tf->curtent->tnode.tupid, &srctent) < 0)
-				return -1;
-			if(srctent)
-				tent = get_tent_dt(srctent->tnode.tupid, value);
-
-			if(!tent) {
-				fprintf(tf->f, "tup error: Unable to find tup entry for file '%s' in node reference declaration.\n", value);
-				return -1;
-			}
+			fprintf(tf->f, "tup error: Unable to find tup entry for file '%s' in node reference declaration.\n", value);
+			return -1;
 		}
 
 		if(tent->type != TUP_NODE_FILE && tent->type != TUP_NODE_DIR) {
@@ -2670,17 +2677,6 @@ static int nl_add_path(struct tupfile *tf, struct path_list *pl,
 {
 	struct build_name_list_args args;
 
-	if(pl->path != NULL) {
-		/* Note that dirlen should be pl->pel->path - pl->path - 1,
-		 * but we add 1 to account for the trailing '/' that
-		 * will be added (since it won't be added in the next case).
-		 */
-		args.dir = pl->path;
-		args.dirlen = pl->pel->path - pl->path;
-	} else {
-		args.dir = "";
-		args.dirlen = 0;
-	}
 	args.nl = nl;
 	/* Save the original string with globs to pass to the function that
 	 * determines the length, extension length, and basename length in order to
@@ -2753,6 +2749,7 @@ static int nl_add_path(struct tupfile *tf, struct path_list *pl,
 					return -1;
 				if(tmp && tmp->type != TUP_NODE_GHOST) {
 					valid_input = 1;
+					tent = tmp;
 				}
 			}
 
@@ -2839,6 +2836,7 @@ static int build_name_list_cb(void *arg, struct tup_entry *tent)
 	int len;
 	struct name_list_entry *nle;
 	struct tupfile *tf = args->tf;
+	struct estring e;
 
 	/* If the file is generated from another directory, we can't use it in
 	 * a wildcard.
@@ -2862,30 +2860,31 @@ static int build_name_list_cb(void *arg, struct tup_entry *tent)
 		return -1;
 	}
 
-	len = tent->name.len + args->dirlen;
-	extlesslen = tent->name.len - 1;
-	while(extlesslen > 0 && tent->name.s[extlesslen] != '.')
-		extlesslen--;
-	if(extlesslen == 0)
-		extlesslen = tent->name.len;
-	extlesslen += args->dirlen;
-
 	nle = malloc(sizeof *nle);
 	if(!nle) {
 		perror("malloc");
 		return -1;
 	}
 
-	nle->path = set_path(tent->name.s, args->dir, args->dirlen);
-	if(!nle->path) {
-		free(nle);
+	if(estring_init(&e) < 0)
 		return -1;
-	}
+	if(get_relative_dir(NULL, &e, NULL, tf->tupid, tent->tnode.tupid, NULL) < 0)
+		return -1;
 
-	nle->len = len;
+	extlesslen = e.len;
+	len = tent->name.len;
+	while(len > 0 && tent->name.s[len] != '.') {
+		len--;
+		extlesslen--;
+	}
+	if(len == 0)
+		extlesslen = e.len;
+
+	nle->path = e.s;
+	nle->len = e.len;
 	nle->extlesslen = extlesslen;
 	nle->tent = tent;
-	nle->dirlen = args->dirlen;
+
 	set_nle_base(nle);
 
 	/* Do the glob parsing for %g */
@@ -3035,34 +3034,6 @@ static int glob_parse(const char *pattern, int patlen, char *match, int *globidx
 	}
 
 	return glob_cnt;
-}
-
-static char *set_path(const char *name, const char *dir, int dirlen)
-{
-	char *path;
-
-	if(dirlen) {
-		int nlen;
-
-		nlen = strlen(name);
-		/* +1 for '/', +1 for nul */
-		path = malloc(nlen + dirlen + 1);
-		if(!path) {
-			perror("malloc");
-			return NULL;
-		}
-
-		memcpy(path, dir, dirlen-1);
-		path[dirlen-1] = PATH_SEP;
-		strcpy(path + dirlen, name);
-	} else {
-		path = strdup(name);
-		if(!path) {
-			perror("strdup");
-			return NULL;
-		}
-	}
-	return path;
 }
 
 static int find_existing_command(const struct name_list *onl, tupid_t *cmdid)
@@ -3335,9 +3306,9 @@ int do_rule(struct tupfile *tf, struct rule *r, struct name_list *nl,
 		while(onle->extlesslen > 0 && onle->path[onle->extlesslen] != '.')
 			onle->extlesslen--;
 
-		if(tf->srctent) {
+		if(!tf->variant->root_variant) {
 			struct tup_entry *tent;
-			if(tup_db_select_tent(tf->srctent->tnode.tupid, onle->path, &tent) < 0)
+			if(tup_db_select_tent(tf->curtent->tnode.tupid, onle->path, &tent) < 0)
 				return -1;
 			if(tent && tent->type != TUP_NODE_GHOST) {
 				fprintf(tf->f, "tup error: Attempting to insert '%s' as a generated node when it already exists as a different type (%s) in the source directory. You can do one of two things to fix this:\n  1) If this file is really supposed to be created from the command, delete the file from the filesystem and try again.\n  2) Change your rule in the Tupfile so you aren't trying to overwrite the file.\n", onle->path, tup_db_type(tent->type));
@@ -3542,7 +3513,7 @@ static void set_nle_base(struct name_list_entry *nle)
 	nle->baselen = 0;
 	while(nle->base > nle->path) {
 		nle->base--;
-		if(nle->base[0] == PATH_SEP) {
+		if(is_path_sep(nle->base)) {
 			nle->base++;
 			goto out;
 		}
@@ -3971,13 +3942,16 @@ static char *eval(struct tupfile *tf, const char *string, int allow_nodes)
 				if(rparen-var == 7 &&
 				   strncmp(var, "TUP_CWD", 7) == 0) {
 					int clen = 0;
-					if(get_relative_dir(NULL, NULL, NULL, tf->tupid, tf->curtent->tnode.tupid, &clen) < 0) {
-						fprintf(tf->f, "tup internal error: Unable to find relative directory length from ID %lli -> %lli\n", tf->tupid, tf->curtent->tnode.tupid);
-						tup_db_print(tf->f, tf->tupid);
+					if(get_relative_dir(NULL, NULL, NULL, tf->srctupid, tf->curtent->tnode.tupid, &clen) < 0) {
+						fprintf(tf->f, "tup internal error: Unable to find relative directory length from ID %lli -> %lli\n", tf->srctupid, tf->curtent->tnode.tupid);
+						tup_db_print(tf->f, tf->srctupid);
 						tup_db_print(tf->f, tf->curtent->tnode.tupid);
 						return NULL;
 					}
 					len += clen;
+				} else if(rparen-var == 10 &&
+					  strncmp(var, "TUP_SRCDIR", 10) == 0) {
+					len += tf->srcdir.len;
 				} else if(rparen - var > 7 &&
 					  strncmp(var, "CONFIG_", 7) == 0) {
 					const char *atvar;
@@ -4083,13 +4057,17 @@ static char *eval(struct tupfile *tf, const char *string, int allow_nodes)
 				if(rparen-var == 7 &&
 				   strncmp(var, "TUP_CWD", 7) == 0) {
 					int clen = 0;
-					if(get_relative_dir(NULL, NULL, p, tf->tupid, tf->curtent->tnode.tupid, &clen) < 0) {
-						fprintf(tf->f, "tup internal error: Unable to find relative directory from ID %lli -> %lli\n", tf->tupid, tf->curtent->tnode.tupid);
-						tup_db_print(tf->f, tf->tupid);
+					if(get_relative_dir(NULL, NULL, p, tf->srctupid, tf->curtent->tnode.tupid, &clen) < 0) {
+						fprintf(tf->f, "tup internal error: Unable to find relative directory from ID %lli -> %lli\n", tf->srctupid, tf->curtent->tnode.tupid);
+						tup_db_print(tf->f, tf->srctupid);
 						tup_db_print(tf->f, tf->curtent->tnode.tupid);
 						return NULL;
 					}
 					p += clen;
+				} else if(rparen-var == 10 &&
+					  strncmp(var, "TUP_SRCDIR", 10) == 0) {
+					memcpy(p, tf->srcdir.s, tf->srcdir.len);
+					p += tf->srcdir.len;
 				} else if(rparen - var > 7 &&
 					  strncmp(var, "CONFIG_", 7) == 0) {
 					const char *atvar;

@@ -46,12 +46,12 @@ tup touch build/tup.config
 tup touch build2/tup.config
 update
 
-tup_dep_exist build/sub foo.h build/sub3 'gcc -c foo.c -o foo.o -I../sub -I../sub2'
-tup_dep_exist build/sub2 bar.h build/sub3 'gcc -c foo.c -o foo.o -I../sub -I../sub2'
-tup_dep_exist build/sub2 bar.h build/sub3 'gcc -c bar.c -o bar.o -I../sub -I../sub2'
+tup_dep_exist build/sub foo.h build/sub3 'gcc -c ../../sub3/foo.c -o foo.o -I../sub -I../sub2'
+tup_dep_exist build/sub2 bar.h build/sub3 'gcc -c ../../sub3/foo.c -o foo.o -I../sub -I../sub2'
+tup_dep_exist build/sub2 bar.h build/sub3 'gcc -c ../../sub3/bar.c -o bar.o -I../sub -I../sub2'
 
-tup_dep_exist build2/sub foo.h build2/sub3 'gcc -c foo.c -o foo.o -I../sub -I../sub2'
-tup_dep_exist build2/sub2 bar.h build2/sub3 'gcc -c foo.c -o foo.o -I../sub -I../sub2'
-tup_dep_exist build2/sub2 bar.h build2/sub3 'gcc -c bar.c -o bar.o -I../sub -I../sub2'
+tup_dep_exist build2/sub foo.h build2/sub3 'gcc -c ../../sub3/foo.c -o foo.o -I../sub -I../sub2'
+tup_dep_exist build2/sub2 bar.h build2/sub3 'gcc -c ../../sub3/foo.c -o foo.o -I../sub -I../sub2'
+tup_dep_exist build2/sub2 bar.h build2/sub3 'gcc -c ../../sub3/bar.c -o bar.o -I../sub -I../sub2'
 
 eotup

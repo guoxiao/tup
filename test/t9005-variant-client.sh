@@ -30,7 +30,7 @@ cd sub
 mv ../client .
 
 cat > Tupfile << HERE
-: |> ./client defg > %o |> ok.txt
+: |> \$(TUP_SRCDIR)/client defg > %o |> ok.txt
 HERE
 tup touch Tupfile empty.txt
 update

@@ -37,7 +37,7 @@ HERE
 chmod +x gen.sh
 
 cat > Tupfile << HERE
-run ./gen.sh
+run \$(TUP_SRCDIR)/gen.sh
 HERE
 update
 

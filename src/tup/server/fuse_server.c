@@ -577,7 +577,7 @@ int server_run_script(FILE *f, tupid_t tupid, const char *cmdline,
 	s.signalled = 0;
 	s.error_mutex = NULL;
 	tent = tup_entry_get(tupid);
-	init_file_info(&s.finfo, tup_entry_variant(tent)->variant_dir);
+	init_file_info(&s.finfo);
 	if(exec_internal(&s, cmdline, &te, tent, 0, full_deps) < 0)
 		return -1;
 	environ_free(&te);

@@ -26,6 +26,6 @@ cat > Tupfile << HERE
 include ../foo.tup
 HERE
 tup touch Tupfile foo.tup build/tup.config
-update_fail_msg "Unable to include file '../foo.tup' since it is outside of the variant tree"
+update_fail_msg "Unable to find directory for include file '../foo.tup' relative to '.'"
 
 eotup

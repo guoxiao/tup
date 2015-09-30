@@ -33,7 +33,7 @@ HERE
 chmod +x gen.sh
 cat > Tupfile << HERE
 : |> echo "" > %o |> gen.c
-run ./gen.sh
+run \$(TUP_SRCDIR)/gen.sh
 HERE
 tup touch Tupfile gen.sh foo.c bar.c build/tup.config
 update

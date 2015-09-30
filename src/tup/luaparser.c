@@ -833,7 +833,7 @@ static int include_rules(struct tupfile *tf)
 
 	num_dotdots = 0;
 	tent = tf->curtent;
-	while(tent->tnode.tupid != tf->variant->dtnode.tupid) {
+	while(tent->tnode.tupid != DOT_DT) {
 		tent = tent->parent;
 		num_dotdots++;
 	}
@@ -874,8 +874,8 @@ static int include_file(struct tupfile *tf, const char *file)
 	tupid_t newdt;
 	struct tup_entry *oldtent = tf->curtent;
 	int old_dfd = tf->cur_dfd;
-	struct tup_entry *srctent = NULL;
 	struct tup_entry *newtent;
+	struct variant *variant;
 
 	if(get_path_elements(file, &pg) < 0)
 		goto out_err;
@@ -896,17 +896,14 @@ static int include_file(struct tupfile *tf, const char *file)
 	}
 
 	newtent = tup_entry_get(newdt);
-	if(tup_entry_variant(newtent) != tf->variant) {
+	variant = tup_entry_variant(newtent);
+	if(!variant->root_variant && variant != tf->variant) {
 		fprintf(tf->f, "tup error: Unable to include file '%s' since it is outside of the variant tree.\n", file);
 		return -1;
 	}
 	tf->curtent = newtent;
 
-	if(variant_get_srctent(tf->variant, newdt, &srctent) < 0)
-		return -1;
-	if(!srctent)
-		srctent = tf->curtent;
-	if(tup_db_select_tent_part(srctent->tnode.tupid, pel->path, pel->len, &tent) < 0 || !tent) {
+	if(tup_db_select_tent_part(tf->curtent->tnode.tupid, pel->path, pel->len, &tent) < 0 || !tent) {
 		fprintf(tf->f, "tup error: Unable to find tup entry for file '%s'\n", file);
 		goto out_free_pel;
 	}

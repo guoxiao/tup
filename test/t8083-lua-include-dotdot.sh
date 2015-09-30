@@ -26,6 +26,6 @@ cat > Tupfile.lua << HERE
 tup.include '../foo.lua'
 HERE
 tup touch Tupfile.lua foo.lua build/tup.config
-update_fail_msg "Unable to include file '../foo.lua' since it is outside of the variant tree"
+update_fail_msg "Unable to find directory for include file '../foo.lua' relative to '.'"
 
 eotup

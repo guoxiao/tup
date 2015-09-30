@@ -34,7 +34,6 @@ tup touch Tupfile
 update
 
 echo nofile | diff - build-default/output.txt
-tup_object_exist . bar
 tup_object_exist build-default bar
 
 cat > Tupfile << HERE
